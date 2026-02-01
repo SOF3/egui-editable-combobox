@@ -1,0 +1,18 @@
+[package]
+name = "egui-editable-combobox"
+version = "0.1.0"
+edition = "2024"
+authors = ["SOFe <sofe2038@gmail.com>"]
+rust-version = "1.92"
+license = "MIT OR Apache-2.0"
+description = "An editable combobox widget for egui"
+repository = "https://github.com/SOF3/egui-editable-combobox"
+keywords = ["egui", "gui", "imgui"]
+
+[dependencies]
+egui = { version = "0.33.3", default-features = false }
+
+[dev-dependencies]
+eframe = "0.33.3"
+egui = "0.33.3"
+strum = { version = "0.27.2", features = ["derive"] }

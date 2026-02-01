@@ -1,0 +1,182 @@
+use std::{fmt::Display, str::FromStr};
+
+use egui::IntoAtoms;
+
+/// The selected value of an [`EditableComboBox`](crate::EditableComboBox).
+pub trait Value {
+    /// Converts the value to the string edited by the user.
+    ///
+    /// This conversion is used to populate the text editor
+    /// when the user is not editing and the value is changed externally.
+    fn to_editable(&self) -> String;
+}
+
+impl Value for String {
+    fn to_editable(&self) -> String { self.clone() }
+}
+
+/// An option provided when displaying the list of selectable values.
+///
+/// `V` is the [`Value`] type this option resolves into.
+/// This type is typically the same as `V` or a reference to it.
+pub trait ValueOption<V> {
+    /// Tests if this option matches the given text filter.
+    ///
+    /// `FilterState` provides context about the options filtered *before* this one.
+    /// This allows implementing conditional options such as [`CustomOption`].
+    fn filter_by_text(&self, text: &str, state: FilterState) -> bool;
+
+    /// Displays this option in the dropdown list.
+    fn display(&self, text: &str) -> impl IntoAtoms<'_>;
+
+    /// Converts this option into the value.
+    fn into_value(self) -> V;
+
+    /// Tests if this option is equal to the current value.
+    fn equals_value(&self, value: &V) -> bool;
+}
+
+/// State provided to [`ValueOption::filter_by_text`],
+/// about the accumulated state in the current [`show`](crate::EditableComboBox::show) call.
+pub struct FilterState {
+    /// How many options have matched the filter so far.
+    pub prev_matches: usize,
+    /// Whether any of the previous options are exactly equal to the current value.
+    pub had_equal:    bool,
+}
+
+impl ValueOption<String> for String {
+    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
+        self.to_lowercase().contains(&text.to_lowercase())
+    }
+
+    fn display(&self, _text: &str) -> impl IntoAtoms<'_> { self.as_str() }
+
+    fn into_value(self) -> String { self }
+
+    fn equals_value(&self, value: &String) -> bool { self == value }
+}
+
+impl ValueOption<String> for &str {
+    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
+        self.to_lowercase().contains(&text.to_lowercase())
+    }
+
+    fn display(&self, _text: &str) -> impl IntoAtoms<'_> { *self }
+
+    fn into_value(self) -> String { self.to_string() }
+
+    fn equals_value(&self, value: &String) -> bool { self == value }
+}
+
+/// A wrapper implementing [`Value`] and [`ValueOption`]
+/// by delegating to [`FromStr`] and `Display`.
+///
+/// The trait bounds are particularly tailored to work with
+/// [strum](https://docs.rs/strum)-deriving enums.
+///
+/// See [`EditableComboBox`](crate::EditableComboBox) for example usage.
+pub struct ParseDisplayValue<T>(pub T);
+
+impl<T: FromStr + Display> Value for ParseDisplayValue<T> {
+    fn to_editable(&self) -> String { self.0.to_string() }
+}
+
+impl<T: FromStr + Display + PartialEq> ValueOption<ParseDisplayValue<T>>
+    for ParseDisplayValue<T>
+{
+    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
+        self.0.to_string().to_lowercase().contains(&text.to_lowercase())
+    }
+
+    fn display(&self, _text: &str) -> impl IntoAtoms<'_> {
+        self.0.to_string()
+    }
+
+    fn into_value(self) -> ParseDisplayValue<T> { self }
+
+    fn equals_value(&self, value: &ParseDisplayValue<T>) -> bool { self.0 == value.0 }
+}
+
+/// The selected value for [`CustomOption`].
+///
+/// This type differs from `CustomOption` in that
+/// `CustomOption` just states the existence of a "Custom" option,
+/// while `CustomValue` contains the custom value entered by the user.
+pub enum CustomValue<V> {
+    /// User selected one of the given options.
+    Value(V),
+    /// User entered a custom value.
+    Custom(String),
+}
+
+impl<V: Value> Value for CustomValue<V> {
+    fn to_editable(&self) -> String {
+        match self {
+            CustomValue::Value(v) => v.to_editable(),
+            CustomValue::Custom(s) => s.clone(),
+        }
+    }
+}
+
+/// Wraps a [`Value`] to add a "custom" option.
+///
+/// See [`EditableComboBox`](crate::EditableComboBox) for example usage.
+pub enum CustomOption<V> {
+    /// Provides an existing value option.
+    Value(V),
+    /// Allows entering a custom value.
+    ///
+    /// This option should be provided after all [`Value`](CustomOption::Value) options
+    /// so that it correctly hides when a previous value was matched exactly.
+    Custom,
+}
+
+enum IntoAtomsEither<A, B> {
+    Left(A),
+    Right(B),
+}
+
+impl<'a, A, B> IntoAtoms<'a> for IntoAtomsEither<A, B>
+where
+    A: IntoAtoms<'a>,
+    B: IntoAtoms<'a>,
+{
+    fn collect(self, atoms: &mut egui::Atoms<'a>) {
+        match self {
+            IntoAtomsEither::Left(a) => a.collect(atoms),
+            IntoAtomsEither::Right(b) => b.collect(atoms),
+        }
+    }
+}
+
+impl<V, Opt: ValueOption<V>> ValueOption<CustomValue<V>> for CustomOption<Opt> {
+    fn filter_by_text(&self, text: &str, state: FilterState) -> bool {
+        match self {
+            CustomOption::Value(v) => v.filter_by_text(text, state),
+            CustomOption::Custom => !state.had_equal,
+        }
+    }
+
+    fn display(&self, text: &str) -> impl IntoAtoms<'_> {
+        match self {
+            CustomOption::Value(v) => IntoAtomsEither::Left(v.display(text)),
+            CustomOption::Custom => IntoAtomsEither::Right(("Custom: ", text)),
+        }
+    }
+
+    fn into_value(self) -> CustomValue<V> {
+        match self {
+            CustomOption::Value(v) => CustomValue::Value(v.into_value()),
+            CustomOption::Custom => CustomValue::Custom(String::new()),
+        }
+    }
+
+    fn equals_value(&self, value: &CustomValue<V>) -> bool {
+        match (self, value) {
+            (CustomOption::Value(this), CustomValue::Value(that)) => this.equals_value(that),
+            (CustomOption::Custom, CustomValue::Custom(_)) => true,
+            _ => false,
+        }
+    }
+}

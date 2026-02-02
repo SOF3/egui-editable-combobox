@@ -31,10 +31,7 @@ impl eframe::App for App {
                 Continent::iter().map(ParseDisplayValue),
             );
             if resp.changed() {
-                println!(
-                    "Selected continent: {}",
-                    &self.value.0,
-                );
+                println!("Selected continent: {}", &self.value.0,);
             }
         });
     }

@@ -179,7 +179,7 @@ impl EditableComboBox {
                                 || (is_cursor
                                     && ui.input(|input| input.key_pressed(egui::Key::Enter)))
                             {
-                                *selection = displayed.option.into_value();
+                                *selection = displayed.option.into_value(text);
                                 changed = true;
                             }
                         }
@@ -270,6 +270,8 @@ fn move_cursor_pos<Opt>(
                 && let Some(option) = displayed_options.get(new_index)
             {
                 cursor_pos.source_index = option.source_index;
+            } else if let Some(last) = displayed_options.last() {
+                cursor_pos.source_index = last.source_index;
             }
         }
         Motion::Down => {
@@ -277,6 +279,8 @@ fn move_cursor_pos<Opt>(
                 displayed_options.partition_point(|d| d.source_index <= cursor_pos.source_index);
             if let Some(option) = displayed_options.get(partition_point) {
                 cursor_pos.source_index = option.source_index;
+            } else if let Some(first) = displayed_options.first() {
+                cursor_pos.source_index = first.source_index;
             }
         }
     }

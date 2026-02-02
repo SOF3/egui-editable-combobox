@@ -1,4 +1,5 @@
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
+use std::str::FromStr;
 
 use egui::IntoAtoms;
 
@@ -30,7 +31,7 @@ pub trait ValueOption<V> {
     fn display(&self, text: &str) -> impl IntoAtoms<'_>;
 
     /// Converts this option into the value.
-    fn into_value(self) -> V;
+    fn into_value(self, text: &str) -> V;
 
     /// Tests if this option is equal to the current value.
     fn equals_value(&self, value: &V) -> bool;
@@ -52,7 +53,7 @@ impl ValueOption<String> for String {
 
     fn display(&self, _text: &str) -> impl IntoAtoms<'_> { self.as_str() }
 
-    fn into_value(self) -> String { self }
+    fn into_value(self, _text: &str) -> String { self }
 
     fn equals_value(&self, value: &String) -> bool { self == value }
 }
@@ -64,7 +65,7 @@ impl ValueOption<String> for &str {
 
     fn display(&self, _text: &str) -> impl IntoAtoms<'_> { *self }
 
-    fn into_value(self) -> String { self.to_string() }
+    fn into_value(self, _text: &str) -> String { self.to_string() }
 
     fn equals_value(&self, value: &String) -> bool { self == value }
 }
@@ -82,18 +83,14 @@ impl<T: FromStr + Display> Value for ParseDisplayValue<T> {
     fn to_editable(&self) -> String { self.0.to_string() }
 }
 
-impl<T: FromStr + Display + PartialEq> ValueOption<ParseDisplayValue<T>>
-    for ParseDisplayValue<T>
-{
+impl<T: FromStr + Display + PartialEq> ValueOption<ParseDisplayValue<T>> for ParseDisplayValue<T> {
     fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
         self.0.to_string().to_lowercase().contains(&text.to_lowercase())
     }
 
-    fn display(&self, _text: &str) -> impl IntoAtoms<'_> {
-        self.0.to_string()
-    }
+    fn display(&self, _text: &str) -> impl IntoAtoms<'_> { self.0.to_string() }
 
-    fn into_value(self) -> ParseDisplayValue<T> { self }
+    fn into_value(self, _text: &str) -> ParseDisplayValue<T> { self }
 
     fn equals_value(&self, value: &ParseDisplayValue<T>) -> bool { self.0 == value.0 }
 }
@@ -165,17 +162,16 @@ impl<V, Opt: ValueOption<V>> ValueOption<CustomValue<V>> for CustomOption<Opt> {
         }
     }
 
-    fn into_value(self) -> CustomValue<V> {
+    fn into_value(self, text: &str) -> CustomValue<V> {
         match self {
-            CustomOption::Value(v) => CustomValue::Value(v.into_value()),
-            CustomOption::Custom => CustomValue::Custom(String::new()),
+            CustomOption::Value(v) => CustomValue::Value(v.into_value(text)),
+            CustomOption::Custom => CustomValue::Custom(text.to_string()),
         }
     }
 
     fn equals_value(&self, value: &CustomValue<V>) -> bool {
         match (self, value) {
             (CustomOption::Value(this), CustomValue::Value(that)) => this.equals_value(that),
-            (CustomOption::Custom, CustomValue::Custom(_)) => true,
             _ => false,
         }
     }

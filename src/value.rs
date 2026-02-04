@@ -1,4 +1,5 @@
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
+use std::str::FromStr;
 
 use egui::IntoAtoms;
 
@@ -24,49 +25,76 @@ pub trait ValueOption<V> {
     ///
     /// `FilterState` provides context about the options filtered *before* this one.
     /// This allows implementing conditional options such as [`CustomOption`].
-    fn filter_by_text(&self, text: &str, state: FilterState) -> bool;
+    fn filter_by_text(&self, text: &str, state: FilterState) -> FilterResult;
 
     /// Displays this option in the dropdown list.
     fn display(&self, text: &str) -> impl IntoAtoms<'_>;
 
     /// Converts this option into the value.
-    fn into_value(self) -> V;
+    fn into_value(self, text: &str) -> V;
 
-    /// Tests if this option is equal to the current value.
-    fn equals_value(&self, value: &V) -> bool;
+    /// Tests if this option can be converted into the same value as `value`.
+    fn equals_value(&self, value: &V, text: &str) -> bool;
+}
+
+/// Whether the user text fully or partially matched this option.
+pub enum FilterResult {
+    /// The option fully matches the user text.
+    Exact,
+    /// The option partially matches the user text.
+    Partial,
+    /// The option does not match the user text.
+    None,
+}
+
+impl FilterResult {
+    /// Filters `full` by allowing `input` to be a case-insensitive substring.
+    pub fn from_case_insensitive_substring(
+        full: impl AsRef<str>,
+        input: impl AsRef<str>,
+    ) -> FilterResult {
+        if full.as_ref() == input.as_ref() {
+            FilterResult::Exact
+        } else {
+            let full = full.as_ref().to_lowercase();
+            let input = input.as_ref().to_lowercase();
+
+            if full.contains(&input) { FilterResult::Partial } else { FilterResult::None }
+        }
+    }
 }
 
 /// State provided to [`ValueOption::filter_by_text`],
 /// about the accumulated state in the current [`show`](crate::EditableComboBox::show) call.
 pub struct FilterState {
-    /// How many options have matched the filter so far.
+    /// How many preceding options returned [`FilterResult::Partial`] or [`FilterResult::Exact`].
     pub prev_matches: usize,
-    /// Whether any of the previous options are exactly equal to the current value.
-    pub had_equal:    bool,
+    /// Whether any of the preceding options returned [`FilterResult::Exact`].
+    pub had_exact:    bool,
 }
 
 impl ValueOption<String> for String {
-    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
-        self.to_lowercase().contains(&text.to_lowercase())
+    fn filter_by_text(&self, text: &str, _: FilterState) -> FilterResult {
+        FilterResult::from_case_insensitive_substring(self, text)
     }
 
     fn display(&self, _text: &str) -> impl IntoAtoms<'_> { self.as_str() }
 
-    fn into_value(self) -> String { self }
+    fn into_value(self, _text: &str) -> String { self }
 
-    fn equals_value(&self, value: &String) -> bool { self == value }
+    fn equals_value(&self, value: &String, _text: &str) -> bool { self == value }
 }
 
 impl ValueOption<String> for &str {
-    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
-        self.to_lowercase().contains(&text.to_lowercase())
+    fn filter_by_text(&self, text: &str, _: FilterState) -> FilterResult {
+        FilterResult::from_case_insensitive_substring(self, text)
     }
 
     fn display(&self, _text: &str) -> impl IntoAtoms<'_> { *self }
 
-    fn into_value(self) -> String { self.to_string() }
+    fn into_value(self, _text: &str) -> String { self.to_string() }
 
-    fn equals_value(&self, value: &String) -> bool { self == value }
+    fn equals_value(&self, value: &String, _text: &str) -> bool { self == value }
 }
 
 /// A wrapper implementing [`Value`] and [`ValueOption`]
@@ -82,20 +110,16 @@ impl<T: FromStr + Display> Value for ParseDisplayValue<T> {
     fn to_editable(&self) -> String { self.0.to_string() }
 }
 
-impl<T: FromStr + Display + PartialEq> ValueOption<ParseDisplayValue<T>>
-    for ParseDisplayValue<T>
-{
-    fn filter_by_text(&self, text: &str, _: FilterState) -> bool {
-        self.0.to_string().to_lowercase().contains(&text.to_lowercase())
+impl<T: FromStr + Display + PartialEq> ValueOption<ParseDisplayValue<T>> for ParseDisplayValue<T> {
+    fn filter_by_text(&self, text: &str, _: FilterState) -> FilterResult {
+        FilterResult::from_case_insensitive_substring(self.0.to_string(), text)
     }
 
-    fn display(&self, _text: &str) -> impl IntoAtoms<'_> {
-        self.0.to_string()
-    }
+    fn display(&self, _text: &str) -> impl IntoAtoms<'_> { self.0.to_string() }
 
-    fn into_value(self) -> ParseDisplayValue<T> { self }
+    fn into_value(self, _text: &str) -> ParseDisplayValue<T> { self }
 
-    fn equals_value(&self, value: &ParseDisplayValue<T>) -> bool { self.0 == value.0 }
+    fn equals_value(&self, value: &ParseDisplayValue<T>, _text: &str) -> bool { self.0 == value.0 }
 }
 
 /// The selected value for [`CustomOption`].
@@ -151,10 +175,18 @@ where
 }
 
 impl<V, Opt: ValueOption<V>> ValueOption<CustomValue<V>> for CustomOption<Opt> {
-    fn filter_by_text(&self, text: &str, state: FilterState) -> bool {
+    fn filter_by_text(&self, text: &str, state: FilterState) -> FilterResult {
         match self {
             CustomOption::Value(v) => v.filter_by_text(text, state),
-            CustomOption::Custom => !state.had_equal,
+            CustomOption::Custom => {
+                if state.had_exact {
+                    FilterResult::None
+                } else if state.prev_matches > 0 {
+                    FilterResult::Partial
+                } else {
+                    FilterResult::Exact
+                }
+            }
         }
     }
 
@@ -165,17 +197,17 @@ impl<V, Opt: ValueOption<V>> ValueOption<CustomValue<V>> for CustomOption<Opt> {
         }
     }
 
-    fn into_value(self) -> CustomValue<V> {
+    fn into_value(self, text: &str) -> CustomValue<V> {
         match self {
-            CustomOption::Value(v) => CustomValue::Value(v.into_value()),
-            CustomOption::Custom => CustomValue::Custom(String::new()),
+            CustomOption::Value(v) => CustomValue::Value(v.into_value(text)),
+            CustomOption::Custom => CustomValue::Custom(text.to_string()),
         }
     }
 
-    fn equals_value(&self, value: &CustomValue<V>) -> bool {
+    fn equals_value(&self, value: &CustomValue<V>, text: &str) -> bool {
         match (self, value) {
-            (CustomOption::Value(this), CustomValue::Value(that)) => this.equals_value(that),
-            (CustomOption::Custom, CustomValue::Custom(_)) => true,
+            (CustomOption::Value(this), CustomValue::Value(that)) => this.equals_value(that, text),
+            (CustomOption::Custom, CustomValue::Custom(custom)) => text == custom,
             _ => false,
         }
     }

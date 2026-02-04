@@ -1,4 +1,4 @@
-use egui_editable_combobox::{EditableComboBox, ParseDisplayValue};
+use egui_editable_combobox::{CustomOption, CustomValue, EditableComboBox, ParseDisplayValue};
 use strum::IntoEnumIterator;
 
 #[derive(Clone, PartialEq, strum::EnumIter, strum::Display, strum::EnumString)]
@@ -14,12 +14,16 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Example",
         eframe::NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(App { value: ParseDisplayValue(Continent::Antarctica) }))),
+        Box::new(|_cc| {
+            Ok(Box::new(App {
+                value: CustomValue::Value(ParseDisplayValue(Continent::Antarctica)),
+            }))
+        }),
     )
 }
 
 struct App {
-    value: ParseDisplayValue<Continent>,
+    value: CustomValue<ParseDisplayValue<Continent>>,
 }
 
 impl eframe::App for App {
@@ -28,12 +32,18 @@ impl eframe::App for App {
             let resp = EditableComboBox::new("continent").show(
                 ui,
                 &mut self.value,
-                Continent::iter().map(ParseDisplayValue),
+                Continent::iter()
+                    .map(ParseDisplayValue)
+                    .map(CustomOption::Value)
+                    .chain([CustomOption::Custom]),
             );
             if resp.changed() {
                 println!(
                     "Selected continent: {}",
-                    &self.value.0,
+                    match &self.value {
+                        CustomValue::Value(v) => v.0.to_string(),
+                        CustomValue::Custom(manual) => manual.clone(),
+                    },
                 );
             }
         });

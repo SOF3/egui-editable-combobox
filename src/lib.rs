@@ -104,10 +104,9 @@ impl EditableComboBox {
     {
         let mut filtered = Vec::new();
         let mut default_cursor_pos = None;
-        let mut had_equal = false;
+        let mut had_exact = false;
         for (source_index, option) in options.into_iter().enumerate() {
-            let equals = option.equals_value(selection);
-            had_equal |= equals;
+            let equals = option.equals_value(selection, text);
 
             // Set default cursor position to the option matching the current value
             // when the popup is opened initially.
@@ -115,9 +114,17 @@ impl EditableComboBox {
                 default_cursor_pos = Some(CursorPos { source_index });
             }
 
-            if option.filter_by_text(text, FilterState { prev_matches: filtered.len(), had_equal })
-            {
-                filtered.push(DisplayedOption { source_index, option, equals });
+            let filter_result = option
+                .filter_by_text(text, FilterState { prev_matches: filtered.len(), had_exact });
+            match filter_result {
+                FilterResult::Partial => {
+                    filtered.push(DisplayedOption { source_index, option, equals })
+                }
+                FilterResult::Exact => {
+                    filtered.push(DisplayedOption { source_index, option, equals });
+                    had_exact = true;
+                }
+                FilterResult::None => {}
             }
         }
 
@@ -179,7 +186,7 @@ impl EditableComboBox {
                                 || (is_cursor
                                     && ui.input(|input| input.key_pressed(egui::Key::Enter)))
                             {
-                                *selection = displayed.option.into_value();
+                                *selection = displayed.option.into_value(text);
                                 changed = true;
                             }
                         }
@@ -270,6 +277,8 @@ fn move_cursor_pos<Opt>(
                 && let Some(option) = displayed_options.get(new_index)
             {
                 cursor_pos.source_index = option.source_index;
+            } else if let Some(last) = displayed_options.last() {
+                cursor_pos.source_index = last.source_index;
             }
         }
         Motion::Down => {
@@ -277,6 +286,8 @@ fn move_cursor_pos<Opt>(
                 displayed_options.partition_point(|d| d.source_index <= cursor_pos.source_index);
             if let Some(option) = displayed_options.get(partition_point) {
                 cursor_pos.source_index = option.source_index;
+            } else if let Some(first) = displayed_options.first() {
+                cursor_pos.source_index = first.source_index;
             }
         }
     }

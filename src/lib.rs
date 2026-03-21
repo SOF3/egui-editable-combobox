@@ -7,7 +7,9 @@
 
 use std::hash::Hash;
 
-use egui::{Button, Popup, PopupAnchor, ScrollArea, TextEdit, TextStyle, TextWrapMode};
+use egui::{
+    Align, Button, Layout, Popup, PopupAnchor, ScrollArea, TextEdit, TextStyle, TextWrapMode,
+};
 
 mod value;
 pub use value::*;
@@ -166,30 +168,31 @@ impl EditableComboBox {
                     |ui, range| {
                         ui.set_min_width(text_resp.rect.width());
                         ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
-
-                        for (filtered_index, displayed) in
-                            filtered.into_iter().enumerate().take(range.end).skip(range.start)
-                        {
-                            let mut button = Button::selectable(
-                                displayed.equals,
-                                displayed.option.display(text),
-                            );
-                            let is_cursor = cursor_filtered_index == filtered_index;
-                            if is_cursor {
-                                button = button
-                                    .frame_when_inactive(true)
-                                    .stroke(ui.visuals().widgets.hovered.bg_stroke)
-                                    .fill(ui.visuals().widgets.hovered.weak_bg_fill);
-                            }
-                            let select_resp = ui.add(button);
-                            if select_resp.clicked()
-                                || (is_cursor
-                                    && ui.input(|input| input.key_pressed(egui::Key::Enter)))
+                        ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
+                            for (filtered_index, displayed) in
+                                filtered.into_iter().enumerate().take(range.end).skip(range.start)
                             {
-                                *selection = displayed.option.into_value(text);
-                                changed = true;
+                                let mut button = Button::selectable(
+                                    displayed.equals,
+                                    displayed.option.display(text),
+                                );
+                                let is_cursor = cursor_filtered_index == filtered_index;
+                                if is_cursor {
+                                    button = button
+                                        .frame_when_inactive(true)
+                                        .stroke(ui.visuals().widgets.hovered.bg_stroke)
+                                        .fill(ui.visuals().widgets.hovered.weak_bg_fill);
+                                }
+                                let select_resp = ui.add(button);
+                                if select_resp.clicked()
+                                    || (is_cursor
+                                        && ui.input(|input| input.key_pressed(egui::Key::Enter)))
+                                {
+                                    *selection = displayed.option.into_value(text);
+                                    changed = true;
+                                }
                             }
-                        }
+                        });
                     },
                 );
         });
